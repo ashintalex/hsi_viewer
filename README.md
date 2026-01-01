@@ -44,7 +44,7 @@ The viewer supports both VNIR (Visible and Near-Infrared) and SWIR (Short-Wave I
 Clone this repository:
 
 ```bash
-git clone https://github.com/yourusername/hsi_viewer.git
+git clone https://github.com/ashintalex/hsi_viewer.git
 cd hsi_viewer
 ```
 
