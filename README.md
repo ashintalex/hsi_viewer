@@ -1,25 +1,28 @@
 # HSI Viewer - Hyperspectral Image Viewer for PRISMA Data
 
-A Python-based interactive viewer for PRISMA hyperspectral satellite imagery stored in HE5 format. This tool allows you to explore and visualize hyperspectral data cubes with an intuitive graphical interface.
+A Python-based interactive viewer for PRISMA hyperspectral satellite imagery stored in HE5 or NPZ format. This tool allows you to explore and visualize hyperspectral data cubes with an intuitive graphical interface.
 
 ## Overview
 
 PRISMA is an Italian hyperspectral satellite mission that captures images across hundreds of spectral bands. This viewer helps you work with PRISMA Level 1 and Level 2 data products by providing real-time visualization, spectral analysis, and export capabilities.
 
-The viewer supports both VNIR (Visible and Near-Infrared) and SWIR (Short-Wave Infrared) spectral regions, displaying them as separate colored traces to clearly distinguish between the two sensor systems.
+The viewer supports both VNIR (Visible and Near-Infrared) and SWIR (Short-Wave Infrared) spectral regions, displaying them as separate colored traces to clearly distinguish between the two sensor systems. It also supports .npz files containing reflectance data.
 
 ## Features
 
 ### Interactive Visualization
 - Click anywhere on the image to view the full spectral signature at that pixel
+- Red cross indicator shows the currently selected pixel on the image
 - Real-time RGB composite creation with adjustable band selection
 - Single band viewer for examining individual spectral channels
 - Dual-colored spectral plots (blue for VNIR, red for SWIR)
+- Manual pixel coordinate input via text boxes
 
 ### Navigation Controls
 - RGB sliders for custom false-color composites
 - Band slider with Previous/Next buttons for easy navigation
-- Radio buttons to switch between RGB and Single Band modes
+- Toggle buttons to switch between RGB and Single Band modes
+- Text input boxes for direct pixel coordinate entry
 
 ### Data Export
 - Save current view as high-resolution PNG images
@@ -30,6 +33,7 @@ The viewer supports both VNIR (Visible and Near-Infrared) and SWIR (Short-Wave I
 - PRISMA L1 (HCO, STD)
 - PRISMA L2C (HCO)
 - PRISMA L2D (HCO)
+- .npz files with 'reflectance' arrays
 - Automatic detection of data cube locations within HE5 files
 
 ## Requirements
@@ -66,7 +70,7 @@ chmod +x run_viewer.sh
 
 ### Quick Start
 
-Run the viewer with a PRISMA HE5 file:
+Run the viewer with a PRISMA HE5 or NPZ file:
 
 ```bash
 ./run_viewer.sh path/to/your/prisma_file.he5
@@ -78,14 +82,21 @@ Or using Python directly:
 venv/bin/python view_prisma.py path/to/your/prisma_file.he5
 ```
 
+For NPZ files:
+
+```bash
+venv/bin/python view_prisma.py path/to/your/data.npz
+```
+
 ### Interactive Mode
 
 The default mode opens an interactive window where you can:
 
 1. **View RGB Composites**: Use the R, G, and B sliders to select which spectral bands to display as red, green, and blue channels
-2. **Examine Single Bands**: Switch to Single Band mode and use the band slider or Previous/Next buttons to browse through individual spectral channels
-3. **Extract Spectral Profiles**: Click any pixel in the image to see its spectral signature in the graph panel
-4. **Save Images**: Click the Save Image button to export the current view to the data folder
+2. **Examine Single Bands**: Click the Single Band button and use the band slider or Previous/Next buttons to browse through individual spectral channels
+3. **Extract Spectral Profiles**: Click any pixel in the image to see its spectral signature in the graph panel, or enter coordinates directly in the Row/Col text boxes
+4. **Visual Feedback**: A red cross on the image indicates the currently selected pixel
+5. **Save Images**: Click the Save Image button to export the current view to the data folder
 
 ### Quick View Mode
 
@@ -111,6 +122,7 @@ Note that for some L2C products, VNIR wavelengths may be estimated if calibratio
 ```
 hsi_viewer/
 ├── view_prisma.py          # Main viewer application
+├── hsi_viewer.py           # HSIViewer class implementation
 ├── run_viewer.sh           # Launcher script
 ├── venv/                   # Virtual environment
 ├── data/                   # Output folder for saved images
@@ -120,6 +132,7 @@ hsi_viewer/
 ## Known Limitations
 
 - L2C data products may have limited or estimated VNIR wavelength calibration
+- .npz files without wavelength information use default band indices for RGB composites
 - Very large data cubes may take time to load
 - Interactive mode requires a display (GUI environment)
 
@@ -140,6 +153,9 @@ The viewer automatically detects the best display backend. If you encounter issu
 
 ### Spectral plot shows discontinuities
 This is expected for data products where VNIR and SWIR wavelengths overlap or have gaps. The two-color display helps visualize this clearly.
+
+### .npz files not loading
+Ensure the .npz file contains a 'reflectance' array with shape (rows, cols, bands). The viewer expects 3D arrays in this format.
 
 ## Contributing
 
