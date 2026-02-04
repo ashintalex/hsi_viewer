@@ -33,6 +33,7 @@ The viewer supports both VNIR (Visible and Near-Infrared) and SWIR (Short-Wave I
 - PRISMA L1 (HCO, STD)
 - PRISMA L2C (HCO)
 - PRISMA L2D (HCO)
+- Ortho surface reflectance HDF5 files (GRIDS format)
 - .npz files with 'reflectance' arrays
 - Automatic detection of data cube locations within HE5 files
 

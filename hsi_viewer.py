@@ -33,13 +33,19 @@ class HSIViewer:
             self._load_npz()
 
     def _load_he5(self):
-        """Load PRISMA data from HE5 file"""
+        """Load PRISMA or ortho surface reflectance data from HE5 file"""
         print(f"Loading: {self.file_path.name}")
         
         with h5py.File(self.file_path, 'r') as f:
             # Print structure for debugging
             print("\nHE5 Structure:")
             self._print_structure(f)
+            
+            # Check if this is an ortho surface reflectance file (GRIDS format)
+            if 'HDFEOS/GRIDS/HYP/Data Fields/surface_reflectance' in f:
+                print("\nDetected ortho surface reflectance format")
+                self._load_ortho_h5(f)
+                return
             
             # Try different PRISMA data paths
             vnir_paths = [
@@ -200,6 +206,50 @@ class HSIViewer:
         print(f"\nFinal data cube: {self.data.shape} (rows, cols, bands)")
         if self.wavelengths is not None:
             print(f"Wavelength range: {self.wavelengths.min():.1f} - {self.wavelengths.max():.1f} nm")
+
+    def _load_ortho_h5(self, f):
+        """Load ortho surface reflectance data from GRIDS format HE5 file"""
+        # Load surface reflectance data
+        sr_path = 'HDFEOS/GRIDS/HYP/Data Fields/surface_reflectance'
+        if sr_path in f:
+            data = f[sr_path][:]
+            print(f"Surface reflectance shape: {data.shape}")
+            print(f"  Data range: {np.nanmin(data):.4f} to {np.nanmax(data):.4f}")
+            
+            # Replace fill values (typically -9999) with NaN
+            data = data.astype(np.float32)
+            data[data < -1000] = np.nan
+            print(f"  After replacing fill values: {np.nanmin(data):.4f} to {np.nanmax(data):.4f}")
+            
+            # Data is in (bands, rows, cols) format - convert to (rows, cols, bands)
+            self.data = np.transpose(data, (1, 2, 0))
+            print(f"Standardized to: {self.data.shape} (rows, cols, bands)")
+            
+            # Try to load wavelength information from metadata
+            # Check StructMetadata for wavelength info
+            self.wavelengths = None
+            if 'HDFEOS INFORMATION/StructMetadata.0' in f:
+                try:
+                    metadata = f['HDFEOS INFORMATION/StructMetadata.0'][()].decode('utf-8')
+                    # Parse wavelength information if available in metadata
+                    # For now, create estimated wavelengths based on typical hyperspectral ranges
+                    n_bands = self.data.shape[2]
+                    print(f"Creating estimated wavelengths for {n_bands} bands")
+                    # Typical hyperspectral range: 400-2500 nm
+                    self.wavelengths = np.linspace(400, 2500, n_bands)
+                except Exception as e:
+                    print(f"Could not parse metadata: {e}")
+                    n_bands = self.data.shape[2]
+                    self.wavelengths = np.linspace(400, 2500, n_bands)
+            else:
+                # No metadata, create estimated wavelengths
+                n_bands = self.data.shape[2]
+                print(f"No metadata found, creating estimated wavelengths for {n_bands} bands")
+                self.wavelengths = np.linspace(400, 2500, n_bands)
+            
+            print(f"Wavelength range: {self.wavelengths.min():.1f} - {self.wavelengths.max():.1f} nm")
+        else:
+            raise ValueError("Could not find surface reflectance data in HE5 file")
 
     def _load_npz(self):
         arr = np.load(self.file_path)
