@@ -23,6 +23,8 @@ class HSIViewer:
             return 'he5'
         elif ext == '.npz':
             return 'npz'
+        elif ext == '.npy':
+            return 'npy'
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
@@ -31,12 +33,29 @@ class HSIViewer:
             self._load_he5()
         elif self.file_type == 'npz':
             self._load_npz()
+        elif self.file_type == 'npy':
+            self._load_npy()
 
     def _load_he5(self):
         """Load PRISMA or ortho surface reflectance data from HE5 file"""
         print(f"Loading: {self.file_path.name}")
         
-        with h5py.File(self.file_path, 'r') as f:
+        try:
+            h5_file = h5py.File(self.file_path, 'r')
+        except OSError as e:
+            if "truncated file" in str(e):
+                file_size_mb = self.file_path.stat().st_size / (1024 * 1024)
+                raise ValueError(
+                    f"HDF5 file is corrupted or incomplete.\n"
+                    f"File: {self.file_path.name}\n"
+                    f"Current size: {file_size_mb:.1f} MB\n"
+                    f"This usually means the download or transfer was interrupted.\n"
+                    f"Please re-download or re-transfer the complete file."
+                ) from e
+            else:
+                raise
+        
+        with h5_file as f:
             # Print structure for debugging
             print("\nHE5 Structure:")
             self._print_structure(f)
@@ -260,6 +279,18 @@ class HSIViewer:
         self.wavelengths = None  # Could be extended if wavelength info is present
         print(f"Loaded .npz file: {self.data.shape}")
 
+    def _load_npy(self):
+        """Load hyperspectral data from .npy file"""
+        data = np.load(self.file_path)
+        print(f"Loaded .npy file with shape: {data.shape}")
+        
+        # Standardize to (rows, cols, bands) format
+        self.data = self._standardize_cube(data)
+        print(f"Standardized shape: {self.data.shape}")
+        
+        self.wavelengths = None  # No wavelength info in raw .npy files
+        print(f"Loaded .npy file: {self.data.shape}")
+
     def _standardize_cube(self, cube):
         """Standardize cube to (rows, cols, bands) format"""
         if cube.ndim != 3:
@@ -268,9 +299,9 @@ class HSIViewer:
         # PRISMA typically has (bands, rows, cols) or (rows, bands, cols)
         # We want (rows, cols, bands)
         
-        # Heuristic: bands dimension is usually smallest
+        # Heuristic: bands dimension is usually LARGEST for hyperspectral data
         shapes = cube.shape
-        band_dim = np.argmin(shapes)
+        band_dim = np.argmax(shapes)
         
         if band_dim == 0:
             # (bands, rows, cols) -> (rows, cols, bands)
