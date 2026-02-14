@@ -6,6 +6,10 @@ from pathlib import Path
 import sys
 import os
 import matplotlib
+try:
+    import tifffile
+except ImportError:
+    tifffile = None
 
 class HSIViewer:
     """Unified viewer for .he5 and .npz hyperspectral images"""
@@ -25,6 +29,8 @@ class HSIViewer:
             return 'npz'
         elif ext == '.npy':
             return 'npy'
+        elif ext == '.tif' or ext == '.tiff':
+            return 'tif'
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
@@ -35,6 +41,8 @@ class HSIViewer:
             self._load_npz()
         elif self.file_type == 'npy':
             self._load_npy()
+        elif self.file_type == 'tif':
+            self._load_tif()
 
     def _load_he5(self):
         """Load PRISMA or ortho surface reflectance data from HE5 file"""
@@ -291,6 +299,142 @@ class HSIViewer:
         self.wavelengths = None  # No wavelength info in raw .npy files
         print(f"Loaded .npy file: {self.data.shape}")
 
+    def _load_tif(self):
+        """Load hyperspectral data from TIFF file"""
+        if tifffile is None:
+            raise ImportError(
+                "tifffile library is required for TIFF support.\n"
+                "Install it with: pip install tifffile"
+            )
+        
+        print(f"Loading TIFF: {self.file_path.name}")
+        
+        # First, inspect the TIFF structure
+        try:
+            with tifffile.TiffFile(self.file_path) as tif:
+                print(f"TIFF info:")
+                print(f"  Number of pages: {len(tif.pages)}")
+                if len(tif.pages) > 0:
+                    page0 = tif.pages[0]
+                    print(f"  Page 0 shape: {page0.shape}")
+                    print(f"  Page 0 dtype: {page0.dtype}")
+                    if hasattr(page0, 'tags'):
+                        if 'ImageDescription' in page0.tags:
+                            desc = page0.tags['ImageDescription'].value
+                            if isinstance(desc, bytes):
+                                desc = desc.decode('utf-8', errors='ignore')
+                            print(f"  Description: {desc[:200]}")
+        except Exception as e:
+            print(f"Could not inspect TIFF structure: {e}")
+        
+        # Try to load the TIFF file
+        data = None
+        try:
+            # Try standard loading first
+            data = tifffile.imread(self.file_path)
+            print(f"Loaded TIFF with shape: {data.shape}")
+            print(f"  Data type: {data.dtype}")
+            print(f"  Data range: {np.min(data)} to {np.max(data)}")
+        except (ValueError, tifffile.TiffFileError) as e:
+            print(f"Standard loading failed: {e}")
+            print("Attempting page-by-page loading...")
+            
+            # Try loading page by page
+            try:
+                with tifffile.TiffFile(self.file_path) as tif:
+                    pages = []
+                    for i, page in enumerate(tif.pages):
+                        try:
+                            page_data = page.asarray()
+                            pages.append(page_data)
+                            if i == 0:
+                                print(f"  Successfully loaded page {i}: {page_data.shape}")
+                        except Exception as page_error:
+                            print(f"  Failed to load page {i}: {page_error}")
+                            # Try to continue with other pages
+                            continue
+                    
+                    if len(pages) == 0:
+                        raise ValueError("Could not load any pages from TIFF file")
+                    elif len(pages) == 1:
+                        data = pages[0]
+                    else:
+                        # Stack pages
+                        data = np.stack(pages, axis=0)
+                    
+                    print(f"Loaded {len(pages)} pages, final shape: {data.shape}")
+                    print(f"  Data type: {data.dtype}")
+                    print(f"  Data range: {np.min(data)} to {np.max(data)}")
+            except Exception as e2:
+                raise ValueError(f"Could not load TIFF file: {e}\nPage-by-page loading also failed: {e2}")
+        
+        # Handle different TIFF formats
+        if data.ndim == 2:
+            # Single-band grayscale image
+            print("Single-band image detected")
+            # Add a third dimension for consistency
+            self.data = data[:, :, np.newaxis]
+        elif data.ndim == 3:
+            # Could be (rows, cols, bands) or multi-page (pages, rows, cols)
+            # Or RGB (rows, cols, 3)
+            if data.shape[2] <= 4:  # Likely RGB/RGBA
+                print(f"RGB/RGBA image detected ({data.shape[2]} channels)")
+                self.data = data
+            else:
+                # Likely already (rows, cols, bands) for hyperspectral
+                print(f"Multi-band image detected ({data.shape[2]} bands)")
+                self.data = data
+            
+            # Check if it might be (pages, rows, cols) instead
+            # Heuristic: if first dimension is small, might be pages/bands
+            if data.shape[0] < data.shape[2] and data.shape[0] < 1000:
+                print(f"Detected possible (bands, rows, cols) format")
+                self.data = self._standardize_cube(data)
+        elif data.ndim == 4:
+            # Could be (pages, rows, cols, channels)
+            print(f"4D TIFF detected: {data.shape}")
+            if data.shape[3] <= 4:  # channels dimension
+                # Reshape (pages, rows, cols, channels) to (rows, cols, pages*channels)
+                print("Treating as multi-page RGB/multichannel")
+                pages, rows, cols, channels = data.shape
+                self.data = data.transpose(1, 2, 0, 3).reshape(rows, cols, pages * channels)
+            else:
+                # Unusual format, try to standardize
+                self.data = data.reshape(data.shape[1], data.shape[2], -1)
+        else:
+            raise ValueError(f"Unsupported TIFF dimension: {data.ndim}D")
+        
+        print(f"Final shape: {self.data.shape} (rows, cols, bands)")
+        
+        # Try to read wavelength information from TIFF tags if available
+        self.wavelengths = None
+        try:
+            with tifffile.TiffFile(self.file_path) as tif:
+                # Check for wavelength metadata in tags
+                first_page = tif.pages[0]
+                if hasattr(first_page, 'tags'):
+                    # Some hyperspectral TIFFs store wavelength info in description or custom tags
+                    if 'ImageDescription' in first_page.tags:
+                        desc = first_page.tags['ImageDescription'].value
+                        print(f"TIFF description: {desc[:200]}...")  # Show first 200 chars
+        except Exception as e:
+            print(f"Could not read TIFF metadata: {e}")
+        
+        # If no wavelength info found, create estimated wavelengths
+        if self.wavelengths is None:
+            n_bands = self.data.shape[2]
+            if n_bands == 1:
+                self.wavelengths = np.array([550.0])  # Assume visible light
+            elif n_bands == 3:
+                self.wavelengths = np.array([650.0, 550.0, 450.0])  # RGB
+            elif n_bands == 4:
+                self.wavelengths = np.array([650.0, 550.0, 450.0, 800.0])  # RGBA or NIR
+            else:
+                # Hyperspectral - estimate based on typical range
+                print(f"Creating estimated wavelengths for {n_bands} bands")
+                self.wavelengths = np.linspace(400, 2500, n_bands)
+            print(f"Wavelength range: {self.wavelengths.min():.1f} - {self.wavelengths.max():.1f} nm")
+
     def _standardize_cube(self, cube):
         """Standardize cube to (rows, cols, bands) format"""
         if cube.ndim != 3:
@@ -299,9 +443,10 @@ class HSIViewer:
         # PRISMA typically has (bands, rows, cols) or (rows, bands, cols)
         # We want (rows, cols, bands)
         
-        # Heuristic: bands dimension is usually LARGEST for hyperspectral data
+        # Heuristic: bands dimension is usually the SMALLEST for hyperspectral data
+        # (e.g., 66 bands vs 1178x1198 pixels)
         shapes = cube.shape
-        band_dim = np.argmax(shapes)
+        band_dim = np.argmin(shapes)
         
         if band_dim == 0:
             # (bands, rows, cols) -> (rows, cols, bands)
