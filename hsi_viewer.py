@@ -351,8 +351,49 @@ class HSIViewer:
                                 print(f"  Successfully loaded page {i}: {page_data.shape}")
                         except Exception as page_error:
                             print(f"  Failed to load page {i}: {page_error}")
-                            # Try to continue with other pages
-                            continue
+                            
+                            # Try raw data extraction as last resort
+                            print("  Attempting raw strip/tile data extraction...")
+                            try:
+                                # Read raw compressed data from strips or tiles
+                                raw_data = []
+                                if hasattr(page, 'dataoffsets') and hasattr(page, 'databytecounts'):
+                                    with open(self.file_path, 'rb') as f:
+                                        for offset, bytecount in zip(page.dataoffsets, page.databytecounts):
+                                            if bytecount > 0:
+                                                f.seek(offset)
+                                                chunk = f.read(bytecount)
+                                                # Decode if possible
+                                                try:
+                                                    decoded = page.decode(chunk, 0)
+                                                    raw_data.append(decoded)
+                                                except:
+                                                    pass
+                                
+                                if raw_data:
+                                    # Concatenate all available data
+                                    all_data = np.concatenate([np.frombuffer(d, dtype=page.dtype) if isinstance(d, bytes) else d.flatten() for d in raw_data])
+                                    print(f"  Extracted {len(all_data)} values from corrupted strips")
+                                    
+                                    # Try to reshape to something reasonable
+                                    target_shape = page.shape
+                                    expected_size = np.prod(target_shape)
+                                    
+                                    if len(all_data) < expected_size:
+                                        print(f"  Warning: Only recovered {len(all_data)}/{expected_size} values ({100*len(all_data)/expected_size:.1f}%)")
+                                        # Pad with zeros to get expected shape
+                                        padded = np.zeros(expected_size, dtype=page.dtype)
+                                        padded[:len(all_data)] = all_data
+                                        page_data = padded.reshape(target_shape)
+                                        pages.append(page_data)
+                                        print(f"  Recovered partial data: {page_data.shape}")
+                                    else:
+                                        page_data = all_data[:expected_size].reshape(target_shape)
+                                        pages.append(page_data)
+                                        print(f"  Successfully recovered: {page_data.shape}")
+                            except Exception as raw_error:
+                                print(f"  Raw extraction also failed: {raw_error}")
+                                continue
                     
                     if len(pages) == 0:
                         raise ValueError("Could not load any pages from TIFF file")

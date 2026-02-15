@@ -1,2 +1,30 @@
-/PRS_L2C_STD_20210424101038_20210424101042_0001.he5
-/PRS_L2C_STD_20251209223314_20251209223318_0001.he5
+# Large data files
+*.rds
+*.he5
+*.tif
+*.npy
+*.npz
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# R specific
+.Rhistory
+.RData
+.Rproj.user
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
